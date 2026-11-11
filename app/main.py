@@ -68,7 +68,7 @@ def create_registration(
 ) -> dict[str, int | str]:
 	email = registration.email
 	local_and_domain = email.split("@")
-	if len(local_and_domain) != 2 or "." not in local_and_domain[1]:
+	if len(local_and_domain) != 2 or not local_and_domain[0] or "." not in local_and_domain[1]:
 		raise HTTPException(
 			status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
 			detail="Invalid email",
@@ -92,3 +92,25 @@ def create_registration(
 	event["registered"] = int(event["registered"]) + 1
 	event["seats_left"] = int(event["capacity"]) - int(event["registered"])
 	return {"event_id": event_id, "email": email}
+
+
+@app.delete(
+	"/events/{event_id}/registrations/{email}",
+	status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_registration(event_id: int, email: str) -> None:
+	event = events.get(event_id)
+	if event is None:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+	event_registrations = registrations[event_id]
+	normalized_email = email.casefold()
+	if normalized_email not in event_registrations:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Registration not found",
+		)
+
+	del event_registrations[normalized_email]
+	event["registered"] = int(event["registered"]) - 1
+	event["seats_left"] = int(event["capacity"]) - int(event["registered"])
