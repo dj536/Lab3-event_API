@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(title="Campus Events API")
 
 events: dict[int, dict[str, int | str | date]] = {}
+registrations: dict[int, dict[str, str]] = {}
 next_event_id = 1
 
 
@@ -14,6 +15,10 @@ class EventCreate(BaseModel):
 	title: str = Field(min_length=3, max_length=80)
 	date: date
 	capacity: int = Field(gt=0)
+
+
+class RegistrationCreate(BaseModel):
+	email: str
 
 
 @app.post("/events", status_code=status.HTTP_201_CREATED)
@@ -31,6 +36,7 @@ def create_event(event: EventCreate) -> dict[str, int | str | date]:
 		"seats_left": event.capacity,
 	}
 	events[event_id] = created_event
+	registrations[event_id] = {}
 	return created_event
 
 
@@ -51,3 +57,38 @@ def get_event(event_id: int) -> dict[str, int | str | date]:
 	if event is None:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 	return event
+
+
+@app.post(
+	"/events/{event_id}/registrations",
+	status_code=status.HTTP_201_CREATED,
+)
+def create_registration(
+	event_id: int, registration: RegistrationCreate
+) -> dict[str, int | str]:
+	email = registration.email
+	local_and_domain = email.split("@")
+	if len(local_and_domain) != 2 or "." not in local_and_domain[1]:
+		raise HTTPException(
+			status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+			detail="Invalid email",
+		)
+
+	event = events.get(event_id)
+	if event is None:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+	if event["registered"] >= event["capacity"]:
+		raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Event is full")
+
+	normalized_email = email.casefold()
+	event_registrations = registrations[event_id]
+	if normalized_email in event_registrations:
+		raise HTTPException(
+			status_code=status.HTTP_409_CONFLICT,
+			detail="Email already registered",
+		)
+
+	event_registrations[normalized_email] = email
+	event["registered"] = int(event["registered"]) + 1
+	event["seats_left"] = int(event["capacity"]) - int(event["registered"])
+	return {"event_id": event_id, "email": email}
